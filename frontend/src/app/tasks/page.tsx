@@ -16,8 +16,11 @@ interface Task {
     id: string;
     name: string;
   };
-  assignedTo?: {
+  assignee?: {
+    id: string;
     walletAddress: string;
+    username: string | null;
+    reputation: number;
   };
 }
 
@@ -27,8 +30,12 @@ export default function TasksPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<
-    "all" | "open" | "claimed" | "completed"
+    "all" | "OPEN" | "ASSIGNED" | "COMPLETED"
   >("all");
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [prUrl, setPrUrl] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     async function fetchTasks() {
@@ -53,6 +60,9 @@ export default function TasksPage() {
 
   const filteredTasks = tasks.filter((task) => {
     if (filter === "all") return true;
+    if (filter === "ASSIGNED") {
+      return task.status === "ASSIGNED" || task.status === "IN_PROGRESS";
+    }
     return task.status === filter;
   });
 
@@ -75,16 +85,74 @@ export default function TasksPage() {
       );
 
       if (!response.ok) {
-        throw new Error("Failed to claim task");
+        const data = await response.json();
+        throw new Error(data.message || "Failed to claim task");
       }
 
       alert("Task claimed successfully!");
       // Refresh tasks
       window.location.reload();
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error claiming task:", err);
-      alert("Failed to claim task. Please try again.");
+      alert(err.message || "Failed to claim task. Please try again.");
     }
+  };
+
+  const handleSubmitWork = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!prUrl) {
+      alert("Please enter a PR URL");
+      return;
+    }
+
+    if (!selectedTask) return;
+
+    setSubmitting(true);
+    try {
+      const response = await fetch(
+        `http://localhost:5000/api/tasks/${selectedTask.id}/submit`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            prUrl,
+            walletAddress: address,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.message || "Failed to submit work");
+      }
+
+      const data = await response.json();
+
+      alert(
+        `Work submitted successfully! Your contribution is being analyzed by Vincent AI. Score: ${data.data.contribution.score}/100`
+      );
+
+      // Close modal and reset
+      setShowSubmitModal(false);
+      setPrUrl("");
+      setSelectedTask(null);
+
+      // Refresh tasks
+      window.location.reload();
+    } catch (err: any) {
+      console.error("Error submitting work:", err);
+      alert(err.message || "Failed to submit work. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const openSubmitModal = (task: Task) => {
+    setSelectedTask(task);
+    setShowSubmitModal(true);
   };
 
   return (
@@ -206,9 +274,9 @@ export default function TasksPage() {
         >
           {[
             { label: "All Tasks", value: "all" as const },
-            { label: "Open", value: "open" as const },
-            { label: "Claimed", value: "claimed" as const },
-            { label: "Completed", value: "completed" as const },
+            { label: "Open", value: "OPEN" as const },
+            { label: "Claimed", value: "ASSIGNED" as const },
+            { label: "Completed", value: "COMPLETED" as const },
           ].map((filterOption) => (
             <button
               key={filterOption.value}
@@ -360,19 +428,29 @@ export default function TasksPage() {
                           style={{
                             padding: "4px 12px",
                             backgroundColor:
-                              task.status === "open"
+                              task.status === "OPEN"
                                 ? "#d1fae5"
-                                : task.status === "claimed"
+                                : task.status === "ASSIGNED" ||
+                                  task.status === "IN_PROGRESS"
                                 ? "#fef3c7"
+                                : task.status === "SUBMITTED"
+                                ? "#dbeafe"
+                                : task.status === "COMPLETED"
+                                ? "#dcfce7"
                                 : "#f3f4f6",
                             borderRadius: "9999px",
                             fontSize: "12px",
                             fontWeight: "500",
                             color:
-                              task.status === "open"
+                              task.status === "OPEN"
                                 ? "#065f46"
-                                : task.status === "claimed"
+                                : task.status === "ASSIGNED" ||
+                                  task.status === "IN_PROGRESS"
                                 ? "#92400e"
+                                : task.status === "SUBMITTED"
+                                ? "#1e40af"
+                                : task.status === "COMPLETED"
+                                ? "#166534"
                                 : "#6b7280",
                           }}
                         >
@@ -434,11 +512,11 @@ export default function TasksPage() {
                       borderTop: "1px solid #e5e5e5",
                     }}
                   >
-                    {task.assignedTo ? (
+                    {task.assignee ? (
                       <div style={{ fontSize: "14px", color: "#737373" }}>
-                        Assigned to: {task.assignedTo.walletAddress.slice(0, 6)}
+                        Assigned to: {task.assignee.walletAddress.slice(0, 6)}
                         ...
-                        {task.assignedTo.walletAddress.slice(-4)}
+                        {task.assignee.walletAddress.slice(-4)}
                       </div>
                     ) : (
                       <div
@@ -452,7 +530,7 @@ export default function TasksPage() {
                       </div>
                     )}
 
-                    {task.status === "open" && !task.assignedTo && (
+                    {task.status === "OPEN" && !task.assignee && (
                       <Button
                         onClick={() => handleClaimTask(task.id)}
                         disabled={!isConnected}
@@ -460,11 +538,13 @@ export default function TasksPage() {
                         Claim Task
                       </Button>
                     )}
-                    {task.status === "claimed" &&
-                      task.assignedTo?.walletAddress === address && (
-                        <Link href={`/tasks/${task.id}/submit`}>
-                          <Button>Submit Work</Button>
-                        </Link>
+                    {(task.status === "ASSIGNED" ||
+                      task.status === "IN_PROGRESS") &&
+                      task.assignee?.walletAddress.toLowerCase() ===
+                        address?.toLowerCase() && (
+                        <Button onClick={() => openSubmitModal(task)}>
+                          Submit Work
+                        </Button>
                       )}
                   </div>
                 </div>
@@ -473,6 +553,193 @@ export default function TasksPage() {
           </>
         )}
       </main>
+
+      {/* Submit Work Modal */}
+      {showSubmitModal && selectedTask && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            padding: "16px",
+          }}
+          onClick={() => setShowSubmitModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: "#ffffff",
+              borderRadius: "12px",
+              padding: "32px",
+              maxWidth: "600px",
+              width: "100%",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2
+              style={{
+                fontSize: "24px",
+                fontWeight: "bold",
+                color: "#171717",
+                marginBottom: "8px",
+              }}
+            >
+              Submit Your Work
+            </h2>
+            <p
+              style={{
+                fontSize: "14px",
+                color: "#737373",
+                marginBottom: "24px",
+              }}
+            >
+              Submit your Pull Request for review. Vincent AI will analyze your
+              contribution and calculate your payout.
+            </p>
+
+            {/* Task Info */}
+            <div
+              style={{
+                padding: "16px",
+                backgroundColor: "#f5f5f5",
+                borderRadius: "8px",
+                marginBottom: "24px",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: "14px",
+                  fontWeight: "600",
+                  color: "#171717",
+                  marginBottom: "8px",
+                }}
+              >
+                {selectedTask.title}
+              </div>
+              <div
+                style={{
+                  fontSize: "14px",
+                  color: "#737373",
+                  marginBottom: "12px",
+                }}
+              >
+                {selectedTask.project.name}
+              </div>
+              <div
+                style={{
+                  fontSize: "18px",
+                  fontWeight: "700",
+                  color: "#171717",
+                }}
+              >
+                {selectedTask.bountyAmount} PYUSD
+              </div>
+            </div>
+
+            <form onSubmit={handleSubmitWork}>
+              <div style={{ marginBottom: "24px" }}>
+                <label
+                  htmlFor="prUrl"
+                  style={{
+                    display: "block",
+                    fontSize: "14px",
+                    fontWeight: "500",
+                    color: "#171717",
+                    marginBottom: "8px",
+                  }}
+                >
+                  Pull Request URL *
+                </label>
+                <input
+                  type="url"
+                  id="prUrl"
+                  required
+                  value={prUrl}
+                  onChange={(e) => setPrUrl(e.target.value)}
+                  placeholder="https://github.com/user/repo/pull/123"
+                  style={{
+                    width: "100%",
+                    padding: "12px",
+                    border: "1px solid #e5e5e5",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                  }}
+                />
+                <p
+                  style={{
+                    fontSize: "12px",
+                    color: "#737373",
+                    marginTop: "8px",
+                  }}
+                >
+                  Your PR will be analyzed by Vincent AI. Score: 70-100 = Full
+                  payout, 60-69 = Partial payout
+                </p>
+              </div>
+
+              <div
+                style={{
+                  padding: "16px",
+                  backgroundColor: "#eff6ff",
+                  border: "1px solid #bfdbfe",
+                  borderRadius: "8px",
+                  marginBottom: "24px",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    color: "#171717",
+                    marginBottom: "8px",
+                  }}
+                >
+                  💡 Submission Tips
+                </div>
+                <ul
+                  style={{
+                    fontSize: "13px",
+                    color: "#374151",
+                    paddingLeft: "20px",
+                    lineHeight: "1.6",
+                  }}
+                >
+                  <li>Make sure your PR is complete and tested</li>
+                  <li>Include clear description and documentation</li>
+                  <li>Add tests if applicable</li>
+                  <li>Follow the project's code style</li>
+                </ul>
+              </div>
+
+              <div style={{ display: "flex", gap: "12px" }}>
+                <Button type="submit" disabled={submitting} style={{ flex: 1 }}>
+                  {submitting
+                    ? "Submitting & Analyzing..."
+                    : "Submit for Review"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setShowSubmitModal(false);
+                    setPrUrl("");
+                  }}
+                  disabled={submitting}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

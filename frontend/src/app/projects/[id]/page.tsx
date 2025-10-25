@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { ConnectKitButton } from "connectkit";
 import { useAccount } from "wagmi";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
 interface Project {
   id: string;
@@ -27,10 +27,20 @@ interface Project {
 
 export default function ProjectDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const { address, isConnected } = useAccount();
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showCreateTaskModal, setShowCreateTaskModal] = useState(false);
+  const [taskFormData, setTaskFormData] = useState({
+    title: "",
+    description: "",
+    bountyAmount: "",
+    difficulty: "",
+    githubIssueUrl: "",
+  });
+  const [creatingTask, setCreatingTask] = useState(false);
 
   const projectId = params.id as string;
 
@@ -62,6 +72,74 @@ export default function ProjectDetailPage() {
     project &&
     address &&
     project.owner.walletAddress.toLowerCase() === address.toLowerCase();
+
+  const handleCreateTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (
+      !taskFormData.title ||
+      !taskFormData.description ||
+      !taskFormData.bountyAmount
+    ) {
+      alert("Please fill in all required fields");
+      return;
+    }
+
+    if (!address) {
+      alert("Please connect your wallet first");
+      return;
+    }
+
+    setCreatingTask(true);
+    try {
+      const response = await fetch("http://localhost:5000/api/tasks", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ...taskFormData,
+          projectId,
+          ownerWallet: address, // Send wallet address for ownership verification
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.message || "Failed to create task");
+      }
+
+      const data = await response.json();
+
+      // Reset form and close modal
+      setTaskFormData({
+        title: "",
+        description: "",
+        bountyAmount: "",
+        difficulty: "",
+        githubIssueUrl: "",
+      });
+      setShowCreateTaskModal(false);
+
+      // Refresh project to show new task
+      alert(`Task "${taskFormData.title}" created successfully!`);
+      window.location.reload();
+    } catch (err: any) {
+      alert(err.message || "Failed to create task");
+      console.error("Error creating task:", err);
+    } finally {
+      setCreatingTask(false);
+    }
+  };
+
+  const handleViewOnBlockchain = () => {
+    // Open Etherscan for the ProjectRegistry contract
+    const contractAddress =
+      process.env.NEXT_PUBLIC_PROJECT_REGISTRY_ADDRESS ||
+      "0x8df87a09900b4147Ad63804fAEC06919ed15c4A0";
+    const etherscanUrl = `https://sepolia.etherscan.io/address/${contractAddress}`;
+    window.open(etherscanUrl, "_blank");
+  };
 
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#ffffff" }}>
@@ -352,8 +430,17 @@ export default function ProjectDetailPage() {
                   borderTop: "1px solid #e5e5e5",
                 }}
               >
-                {isOwner && <Button variant="outline">Create Task</Button>}
-                <Button variant="outline">View on Blockchain</Button>
+                {isOwner && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowCreateTaskModal(true)}
+                  >
+                    Create Task
+                  </Button>
+                )}
+                <Button variant="outline" onClick={handleViewOnBlockchain}>
+                  View on Blockchain
+                </Button>
               </div>
             </div>
 
@@ -393,20 +480,396 @@ export default function ProjectDetailPage() {
                     {isOwner && " Create your first task to get started!"}
                   </p>
                   {isOwner && (
-                    <Button style={{ marginTop: "16px" }}>
+                    <Button
+                      style={{ marginTop: "16px" }}
+                      onClick={() => setShowCreateTaskModal(true)}
+                    >
                       Create First Task
                     </Button>
                   )}
                 </div>
               ) : (
-                <div style={{ fontSize: "14px", color: "#737373" }}>
-                  {project.tasks.length} task(s) available
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "16px",
+                  }}
+                >
+                  {project.tasks.map((task: any) => (
+                    <div
+                      key={task.id}
+                      style={{
+                        padding: "20px",
+                        border: "1px solid #e5e5e5",
+                        borderRadius: "8px",
+                        backgroundColor: "#fafafa",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "start",
+                        }}
+                      >
+                        <div style={{ flex: 1 }}>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "12px",
+                              marginBottom: "8px",
+                            }}
+                          >
+                            <h4
+                              style={{
+                                fontSize: "16px",
+                                fontWeight: "600",
+                                color: "#171717",
+                              }}
+                            >
+                              {task.title}
+                            </h4>
+                            <span
+                              style={{
+                                padding: "4px 12px",
+                                backgroundColor:
+                                  task.status === "OPEN"
+                                    ? "#d1fae5"
+                                    : task.status === "ASSIGNED"
+                                    ? "#fef3c7"
+                                    : task.status === "SUBMITTED"
+                                    ? "#dbeafe"
+                                    : "#f3f4f6",
+                                borderRadius: "9999px",
+                                fontSize: "12px",
+                                fontWeight: "500",
+                                color:
+                                  task.status === "OPEN"
+                                    ? "#065f46"
+                                    : task.status === "ASSIGNED"
+                                    ? "#92400e"
+                                    : task.status === "SUBMITTED"
+                                    ? "#1e40af"
+                                    : "#6b7280",
+                              }}
+                            >
+                              {task.status}
+                            </span>
+                          </div>
+                          <p
+                            style={{
+                              fontSize: "14px",
+                              color: "#737373",
+                              marginBottom: "12px",
+                            }}
+                          >
+                            {task.description}
+                          </p>
+                          {task.assignee && (
+                            <div style={{ fontSize: "13px", color: "#737373" }}>
+                              Assigned to:{" "}
+                              {task.assignee.walletAddress.slice(0, 6)}...
+                              {task.assignee.walletAddress.slice(-4)}
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ textAlign: "right", marginLeft: "24px" }}>
+                          <div
+                            style={{
+                              fontSize: "12px",
+                              color: "#737373",
+                              marginBottom: "4px",
+                            }}
+                          >
+                            Bounty
+                          </div>
+                          <div
+                            style={{
+                              fontSize: "20px",
+                              fontWeight: "700",
+                              color: "#171717",
+                            }}
+                          >
+                            {task.bountyAmount}
+                          </div>
+                          <div style={{ fontSize: "12px", color: "#737373" }}>
+                            PYUSD
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
           </>
         )}
       </main>
+
+      {/* Create Task Modal */}
+      {showCreateTaskModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            padding: "16px",
+          }}
+          onClick={() => setShowCreateTaskModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: "#ffffff",
+              borderRadius: "12px",
+              padding: "32px",
+              maxWidth: "600px",
+              width: "100%",
+              maxHeight: "90vh",
+              overflowY: "auto",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2
+              style={{
+                fontSize: "24px",
+                fontWeight: "bold",
+                color: "#171717",
+                marginBottom: "8px",
+              }}
+            >
+              Create New Task
+            </h2>
+            <p
+              style={{
+                fontSize: "14px",
+                color: "#737373",
+                marginBottom: "24px",
+              }}
+            >
+              Add a new task to your project for contributors to claim and
+              complete
+            </p>
+
+            <form onSubmit={handleCreateTask}>
+              {/* Task Title */}
+              <div style={{ marginBottom: "20px" }}>
+                <label
+                  htmlFor="title"
+                  style={{
+                    display: "block",
+                    fontSize: "14px",
+                    fontWeight: "500",
+                    color: "#171717",
+                    marginBottom: "8px",
+                  }}
+                >
+                  Task Title *
+                </label>
+                <input
+                  type="text"
+                  id="title"
+                  required
+                  value={taskFormData.title}
+                  onChange={(e) =>
+                    setTaskFormData({ ...taskFormData, title: e.target.value })
+                  }
+                  placeholder="Fix login bug"
+                  style={{
+                    width: "100%",
+                    padding: "12px",
+                    border: "1px solid #e5e5e5",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+
+              {/* Description */}
+              <div style={{ marginBottom: "20px" }}>
+                <label
+                  htmlFor="description"
+                  style={{
+                    display: "block",
+                    fontSize: "14px",
+                    fontWeight: "500",
+                    color: "#171717",
+                    marginBottom: "8px",
+                  }}
+                >
+                  Description *
+                </label>
+                <textarea
+                  id="description"
+                  required
+                  value={taskFormData.description}
+                  onChange={(e) =>
+                    setTaskFormData({
+                      ...taskFormData,
+                      description: e.target.value,
+                    })
+                  }
+                  placeholder="Describe what needs to be done..."
+                  rows={4}
+                  style={{
+                    width: "100%",
+                    padding: "12px",
+                    border: "1px solid #e5e5e5",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                    fontFamily: "inherit",
+                    resize: "vertical",
+                  }}
+                />
+              </div>
+
+              {/* Bounty Amount */}
+              <div style={{ marginBottom: "20px" }}>
+                <label
+                  htmlFor="bountyAmount"
+                  style={{
+                    display: "block",
+                    fontSize: "14px",
+                    fontWeight: "500",
+                    color: "#171717",
+                    marginBottom: "8px",
+                  }}
+                >
+                  Bounty Amount (PYUSD) *
+                </label>
+                <input
+                  type="number"
+                  id="bountyAmount"
+                  required
+                  min="0"
+                  step="0.000001"
+                  value={taskFormData.bountyAmount}
+                  onChange={(e) =>
+                    setTaskFormData({
+                      ...taskFormData,
+                      bountyAmount: e.target.value,
+                    })
+                  }
+                  placeholder="100.00"
+                  style={{
+                    width: "100%",
+                    padding: "12px",
+                    border: "1px solid #e5e5e5",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+
+              {/* Difficulty */}
+              <div style={{ marginBottom: "20px" }}>
+                <label
+                  htmlFor="difficulty"
+                  style={{
+                    display: "block",
+                    fontSize: "14px",
+                    fontWeight: "500",
+                    color: "#171717",
+                    marginBottom: "8px",
+                  }}
+                >
+                  Difficulty
+                </label>
+                <select
+                  id="difficulty"
+                  value={taskFormData.difficulty}
+                  onChange={(e) =>
+                    setTaskFormData({
+                      ...taskFormData,
+                      difficulty: e.target.value,
+                    })
+                  }
+                  style={{
+                    width: "100%",
+                    padding: "12px",
+                    border: "1px solid #e5e5e5",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                    backgroundColor: "#ffffff",
+                  }}
+                >
+                  <option value="">Select difficulty</option>
+                  <option value="Easy">Easy</option>
+                  <option value="Medium">Medium</option>
+                  <option value="Hard">Hard</option>
+                </select>
+              </div>
+
+              {/* GitHub Issue URL */}
+              <div style={{ marginBottom: "24px" }}>
+                <label
+                  htmlFor="githubIssueUrl"
+                  style={{
+                    display: "block",
+                    fontSize: "14px",
+                    fontWeight: "500",
+                    color: "#171717",
+                    marginBottom: "8px",
+                  }}
+                >
+                  GitHub Issue URL
+                </label>
+                <input
+                  type="url"
+                  id="githubIssueUrl"
+                  value={taskFormData.githubIssueUrl}
+                  onChange={(e) =>
+                    setTaskFormData({
+                      ...taskFormData,
+                      githubIssueUrl: e.target.value,
+                    })
+                  }
+                  placeholder="https://github.com/user/repo/issues/123"
+                  style={{
+                    width: "100%",
+                    padding: "12px",
+                    border: "1px solid #e5e5e5",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+
+              {/* Buttons */}
+              <div style={{ display: "flex", gap: "12px" }}>
+                <Button
+                  type="submit"
+                  disabled={creatingTask}
+                  style={{ flex: 1 }}
+                >
+                  {creatingTask ? "Creating..." : "Create Task"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowCreateTaskModal(false)}
+                  disabled={creatingTask}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -38,20 +38,41 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (isConnected && address) {
-      // Fetch user stats and activities
-      // For now, we'll use placeholder data
-      setTimeout(() => {
-        setStats({
-          projectsOwned: 0,
-          tasksClaimed: 0,
-          tasksCompleted: 0,
-          totalEarned: "0",
-        });
-        setActivities([]);
-        setLoading(false);
-      }, 500);
+      fetchUserData();
     }
   }, [address, isConnected]);
+
+  const fetchUserData = async () => {
+    if (!address) return;
+
+    try {
+      setLoading(true);
+
+      // Fetch user stats
+      const statsResponse = await fetch(
+        `http://localhost:5000/api/users/${address}/stats`
+      );
+      const statsData = await statsResponse.json();
+
+      if (statsData.success) {
+        setStats(statsData.data);
+      }
+
+      // Fetch user activity
+      const activityResponse = await fetch(
+        `http://localhost:5000/api/users/${address}/activity?limit=10`
+      );
+      const activityData = await activityResponse.json();
+
+      if (activityData.success) {
+        setActivities(activityData.data);
+      }
+    } catch (error) {
+      console.error("Error fetching user data:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (!isConnected) {
     return (
