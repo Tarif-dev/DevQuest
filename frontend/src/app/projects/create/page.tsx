@@ -56,9 +56,9 @@ export default function CreateProjectPage() {
 
       const data = await response.json();
 
-      // Success! Redirect to the new project page
+      // Success! Redirect to the projects list page
       alert(`Project "${formData.name}" created successfully!`);
-      router.push(`/projects/${data.data.id}`);
+      router.push(`/projects`);
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message);
