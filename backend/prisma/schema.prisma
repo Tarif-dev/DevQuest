@@ -1,0 +1,135 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id            String    @id @default(uuid())
+  walletAddress String    @unique
+  email         String?   @unique
+  username      String?   @unique
+  githubId      String?   @unique
+  reputation    Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  ownedProjects Project[] @relation("ProjectOwner")
+  contributions Contribution[]
+  tasks         Task[]    @relation("TaskAssignee")
+  
+  @@map("users")
+}
+
+model Project {
+  id          String   @id @default(uuid())
+  name        String
+  description String
+  repoUrl     String?
+  ipfsHash    String?
+  totalBounty Decimal  @db.Decimal(18, 6)
+  escrowAddress String?
+  status      ProjectStatus @default(ACTIVE)
+  
+  ownerId     String
+  owner       User     @relation("ProjectOwner", fields: [ownerId], references: [id])
+  
+  tasks       Task[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@map("projects")
+}
+
+model Task {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  bountyAmount Decimal @db.Decimal(18, 6)
+  status      TaskStatus @default(OPEN)
+  difficulty  String?
+  githubIssueUrl String?
+  ipfsHash    String?
+  
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  assigneeId  String?
+  assignee    User?    @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  
+  contributions Contribution[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@map("tasks")
+}
+
+model Contribution {
+  id          String   @id @default(uuid())
+  prUrl       String
+  score       Int      @default(0)
+  status      ContributionStatus @default(PENDING)
+  feedback    String?
+  ipfsHash    String?
+  
+  taskId      String
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  
+  contributorId String
+  contributor User     @relation(fields: [contributorId], references: [id])
+  
+  payouts     Payout[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@map("contributions")
+}
+
+model Payout {
+  id            String   @id @default(uuid())
+  amount        Decimal  @db.Decimal(18, 6)
+  txHash        String   @unique
+  status        PayoutStatus @default(PENDING)
+  
+  contributionId String
+  contribution  Contribution @relation(fields: [contributionId], references: [id])
+  
+  createdAt     DateTime @default(now())
+  
+  @@map("payouts")
+}
+
+enum ProjectStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskStatus {
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  SUBMITTED
+  COMPLETED
+  DISPUTED
+}
+
+enum ContributionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  DISPUTED
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
