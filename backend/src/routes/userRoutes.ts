@@ -63,7 +63,11 @@ router.get(
       });
 
       const totalEarned = payouts
-        .reduce((sum: number, payout: any) => sum + parseFloat(payout.amount.toString()), 0)
+        .reduce(
+          (sum: number, payout: any) =>
+            sum + parseFloat(payout.amount.toString()),
+          0
+        )
         .toFixed(2);
 
       res.json({
